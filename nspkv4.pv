@@ -1,0 +1,87 @@
+(********************************************************************************************************)
+(*          			          Kao-Chow  protocol               				*)
+(*    			       	   									*)
+(*  1. A -> S : A, B, Na	            								*)
+(*  2. S -> B : {A, B, Na, sharedsk(A,B)}sharedsk(S,A), {A, B, Na, sharedsk(A,B)}sharedsk(S,B) 		*)
+(*  3. B -> A : {A, B, Na, sharedsk(A,B)}sharedsk(S,A),	{Na}sharedsk(A,B), Nb				*)
+(*  4. A -> B : {Nb}sharedsk(A,B)									*)
+(*    			       	   									*)
+(********************************************************************************************************)
+
+free c:channel.  (* declaring a free channel name *)
+
+(* déclaration des types *)
+type id.
+type skey.
+
+(* déclaration des events *)
+event reach.
+event start(id, id, bitstring).
+event end(id, id, bitstring).
+
+free a, b, s, d: id. (* declaring identities as free names*)
+
+(* Private key cryptography *)
+
+fun sharedsk(id, id): skey [private].
+fun senc(bitstring, skey):bitstring.    (* symmetric encryption  *)
+fun sdec(bitstring, skey):bitstring.    (* symmetric decryption  *)
+
+equation forall x:bitstring, y:id, yy:id; sdec(senc(x, sharedsk(y, yy)), sharedsk(y,yy)) = x.
+
+(* queries should be added here *)
+query event(reach).
+query ida:id, idb:id; attacker(new Kab) ==> ida=d || idb=d.
+query ida:id, idb:id, noncy:bitstring; inj-event(end(ida,idb,noncy)) ==> inj-event(start(ida,idb,noncy)) || ida=d || idb=d.
+
+(* Note : mettre les nonce le plus tard possible *)
+(* initiator process *)
+let Pi(i:id, r:id, rs:id) = 
+	
+	new Na:bitstring;
+        event start(i, r, Na);
+	out(c, (i, r, Na));
+	in(c, generatedByS:bitstring);
+	in(c, NaReceived:bitstring);
+	in(c, NbReceived:bitstring);
+
+	(* Vérification du msg de la part du serveur *)
+	let (=i, =r, =Na, Kab:skey) = sdec(generatedByS, sharedsk(rs, i))  in
+	
+	(* Véfication du Nonce chiffré avec Kab par B *)
+	if Na = sdec(NaReceived, Kab) then  
+        
+	(* Envoi du challenge donné par B *)
+	out(c, senc(NbReceived, Kab))
+	else 0
+	. 
+
+(* responder process *)
+let Pr (r:id, rs:id) =
+        
+	in(c, msgS2A:bitstring);
+	in(c, msgS2B:bitstring);
+	let(IDa: id, =r, NaReceived:bitstring, Kab:skey) = sdec(msgS2B, sharedsk(rs, r)) in
+	new Nb:bitstring;
+        out(c, msgS2A);
+        out(c, senc(NaReceived, Kab));
+        out(c, Nb);
+	
+	(* Vérification du challenge donné *)
+	in(c, NbReceived:bitstring);
+	if Nb = sdec(NbReceived, Kab) then event end(IDa, r, NaReceived) else 0 
+	.
+
+(* server process *)
+let Ps (rs:id, i:id, r:id) =
+	
+	in(c, generatedByA:bitstring);
+        let(=i, =r, NaReceived:bitstring) = generatedByA in
+        new Kab:skey ;
+        out(c, senc( (i, r, NaReceived, Kab), sharedsk(rs, i))); 
+        out(c, senc( (i, r, NaReceived, Kab), sharedsk(rs, r)));
+	0.
+
+(* main process *)
+(*process (!in(c, xa:id);in(c, xb:id);Pi(xa,xb,s)) | (!in(c, xb:id);Pr(xb, s)) | Ps(s, xa:id, xb) | out(c, (sharedsk(s, d)))*)
+process (!in(c, xa:id);in(c, xb:id);Pi(xa,xb,s) | Pr(xb, s) | Ps(s, xa, xb) | out(c, (sharedsk(s, d))))

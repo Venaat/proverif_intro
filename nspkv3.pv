@@ -1,0 +1,68 @@
+(************************************************)
+(*    Needham-Schroeder public key protocol     *)
+(*    			       	   		*)
+(*  1. A -> B: {| A, Na |}pk(B)			*)
+(*  2. B -> A: {| Na, Nb |}pk(A)		*)
+(*  3. A -> B: {| Nb |}pk(B)			*)
+(*    			       	   		*)
+(************************************************)
+
+free c:channel.  (* declaring a free channel name *)
+
+(* déclaration des types *)
+type id.
+type pkey.
+type skey.
+event reach.
+event startI(id, id, bitstring).
+event endI(id, id, bitstring).
+
+free a, b, d: id. (* declaring identities as free names*)
+
+(* Public key cryptography *)
+
+fun pk(id):pkey.			(* public key*)
+fun aenc(bitstring, pkey):bitstring. 	(* asymmetric encryption *)
+fun adec(bitstring, skey):bitstring.	(* asymmetric decryption *)
+
+fun sk(id):skey [private]. (* sk is a private function, i.e. cannot be applied by the adversary *)
+
+(* i.e quelqu'un avec sa clé secrète peut déchiffrer un msg chiffré avec sa clé publique *)
+equation forall x:bitstring, y:id; adec(aenc(x,pk(y)),sk(y)) = x.
+
+(* queries should be added here *)
+query event(reach).
+query attacker(new na).
+query ida:id, idb:id; attacker(new nb) ==> ida=d || idb=d. 
+query ida:id, idb:id, noncy:bitstring; inj-event(endI(ida,idb,noncy)) ==> inj-event(startI(ida,idb,noncy)) || ida=d.
+(* Note : mettre les nonce le plus tard possible *)
+(* initiator process *)
+let Pi(i1:id, r1:id) = 
+
+       	 new na:bitstring;
+	 event startI(i1, r1, na);
+       	 out(c, aenc( (i1,na) , pk(r1)));
+	 in(c, x:bitstring);
+	 let (=na, nr:bitstring, =r1) = adec(x, sk(i1)) in	 (* '=na' checks that the received value is equal to na, previously defined *)
+	 out(c, aenc(nr,pk(r1)))
+	 .
+	 
+
+(* responder process *)
+let Pr (r2:id) =
+    (* fill in responder process *)
+         
+        in(c, y:bitstring);
+        let (idA:id, naReceived:bitstring) = adec(y, sk(r2)) in
+        new nb:bitstring;
+        out(c, aenc((naReceived, nb, r2), pk(idA)));
+        in(c, yy:bitstring);
+        let nbReceived = adec(yy, sk(r2)) in
+        if nb=nbReceived then 
+        event endI(idA, r2, naReceived) else 0. 
+
+
+(* main process *)
+process (!in(c, xa:id);in(c, xb:id);Pi(xa,xb)) | (!in(c, xb:id);Pr(xb)) | out(c,sk(d))
+
+
